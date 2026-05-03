@@ -103,6 +103,7 @@ func (al *AgentLoop) publishResponseWithContextIfNeeded(
 		map[string]any{
 			"channel":     channel,
 			"chat_id":     chatID,
+			"topic_id":    msg.Context.TopicID,
 			"content_len": len(response),
 		})
 }
