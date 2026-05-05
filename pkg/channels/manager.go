@@ -525,7 +525,7 @@ func (m *Manager) preSendMedia(ctx context.Context, name string, msg bus.Outboun
 	m.streamActive.LoadAndDelete(key)
 
 	if m.toolFeedbackSeparateMessagesEnabled() {
-		clearTrackedToolFeedbackMessage(ch, chatID, &msg.Context)
+		dismissTrackedToolFeedbackMessage(ctx, ch, chatID, &msg.Context)
 	}
 
 	// 4. Delete placeholder if present.

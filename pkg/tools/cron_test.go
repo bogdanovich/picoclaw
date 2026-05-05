@@ -327,6 +327,24 @@ func TestCronTool_ExecuteJobSkipsEmptyAgentResponse(t *testing.T) {
 	}
 }
 
+func TestCronTool_ExecuteJobSkipsNoReplySentinel(t *testing.T) {
+	executor := &stubJobExecutor{response: " NO_REPLY \n"}
+	tool := newTestCronToolWithExecutorAndConfig(t, executor, config.DefaultConfig())
+
+	job := &cron.CronJob{ID: "job-no-reply"}
+	job.Payload.Channel = "telegram"
+	job.Payload.To = "chat-1"
+	job.Payload.Message = "only reply if actionable"
+
+	if got := tool.ExecuteJob(context.Background(), job); got != "ok" {
+		t.Fatalf("ExecuteJob() = %q, want ok", got)
+	}
+
+	if executor.publishedResp != "" {
+		t.Fatalf("unexpected published response: %q", executor.publishedResp)
+	}
+}
+
 func TestCronTool_ExecuteJobSkipsWhenMessageToolAlreadySent(t *testing.T) {
 	executor := &stubJobExecutor{response: "Sent.", alreadySent: true}
 	tool := newTestCronToolWithExecutorAndConfig(t, executor, config.DefaultConfig())

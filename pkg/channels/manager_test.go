@@ -1544,7 +1544,7 @@ func TestPreSendMedia_LeavesTrackedMessageForChannelSend(t *testing.T) {
 	}
 }
 
-func TestPreSendMedia_SeparateMessagesClearsTrackedMessageWithoutDismiss(t *testing.T) {
+func TestPreSendMedia_SeparateMessagesDismissesTrackedMessage(t *testing.T) {
 	m := newTestManager()
 	m.config = &config.Config{
 		Agents: config.AgentsConfig{
@@ -1567,12 +1567,11 @@ func TestPreSendMedia_SeparateMessagesClearsTrackedMessageWithoutDismiss(t *test
 		},
 	}, ch)
 
-	if ch.clearedChatID != "123" {
-		t.Fatalf("expected tracked tool feedback state to be cleared before media delivery, got %q", ch.clearedChatID)
+	if ch.dismissedChatID != "123" {
+		t.Fatalf("expected tracked tool feedback message to be dismissed before media delivery, got %q", ch.dismissedChatID)
 	}
-	if ch.dismissedChatID != "" {
-		t.Fatalf("expected tracked tool feedback message to be preserved"+
-			" for media delivery, got %q", ch.dismissedChatID)
+	if ch.clearedChatID != "" {
+		t.Fatalf("expected dismissal to handle tracked state cleanup, got clear for %q", ch.clearedChatID)
 	}
 }
 
