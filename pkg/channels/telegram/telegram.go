@@ -527,7 +527,7 @@ func outboundMessageIsToolFeedback(msg bus.OutboundMessage) bool {
 }
 
 func telegramToolFeedbackTrackerKey(msg bus.OutboundMessage) string {
-	key := telegramToolFeedbackChatKey(msg.ChatID, &msg.Context)
+	key := telegramResolvedChatID(msg.ChatID, &msg.Context)
 	sessionKey := strings.TrimSpace(msg.SessionKey)
 	if key == "" || sessionKey == "" {
 		return key
