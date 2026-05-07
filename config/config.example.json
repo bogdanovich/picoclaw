@@ -18,6 +18,8 @@
         "max_args_length": 300,
         "separate_messages": false,
         "subagents": true,
+        "animation_interval_secs": 3,
+        "edit_min_interval_seconds": 0,
         "style": "raw"
       }
     }

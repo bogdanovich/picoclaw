@@ -3,7 +3,9 @@ package channels
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
+	"time"
 )
 
 func TestFormatAnimatedToolFeedbackContent(t *testing.T) {
@@ -137,8 +139,8 @@ func TestToolFeedbackAnimationIntervalForWorkingSummary(t *testing.T) {
 
 func TestToolFeedbackAnimationIntervalForRawFeedback(t *testing.T) {
 	got := toolFeedbackAnimationIntervalFor("🔧 `read_file`\nReading config")
-	if got != toolFeedbackAnimationInterval {
-		t.Fatalf("toolFeedbackAnimationIntervalFor() = %v, want %v", got, toolFeedbackAnimationInterval)
+	if got != defaultToolFeedbackAnimationInterval {
+		t.Fatalf("toolFeedbackAnimationIntervalFor() = %v, want %v", got, defaultToolFeedbackAnimationInterval)
 	}
 }
 
@@ -180,5 +182,81 @@ func TestMergeToolFeedbackContent_PreservesNamedWorkingSummaryHeader(t *testing.
 func TestIsWorkingSummaryToolFeedback_AcceptsNamedHeader(t *testing.T) {
 	if !isWorkingSummaryToolFeedback("Deep Research working...\n• tool: `read_file`") {
 		t.Fatal("expected named working summary to be recognized")
+	}
+}
+
+func TestToolFeedbackAnimator_UpdateDoesNotDebounceByDefault(t *testing.T) {
+	editCalls := 0
+	animator := NewToolFeedbackAnimator(func(context.Context, string, string, string) error {
+		editCalls++
+		return nil
+	})
+	defer animator.StopAll()
+
+	animator.Record("chat-1", "msg-1", "🔧 `read_file`")
+	animator.markEdit("chat-1")
+
+	msgID, handled, err := animator.Update(context.Background(), "chat-1", "🔧 `write_file`")
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if !handled || msgID != "msg-1" {
+		t.Fatalf("Update() = (%q, %v), want (msg-1, true)", msgID, handled)
+	}
+	if editCalls != 1 {
+		t.Fatalf("edit calls = %d, want 1 when min edit interval is unset", editCalls)
+	}
+}
+
+func TestToolFeedbackAnimator_UpdateDebouncesRecentEditWhenConfigured(t *testing.T) {
+	editCalls := 0
+	animator := NewToolFeedbackAnimator(func(context.Context, string, string, string) error {
+		editCalls++
+		return nil
+	})
+	defer animator.StopAll()
+	animator.Configure(ToolFeedbackAnimatorConfig{MinEditInterval: 10 * time.Second})
+
+	animator.Record("chat-1", "msg-1", "🔧 `read_file`")
+	animator.markEdit("chat-1")
+
+	msgID, handled, err := animator.Update(context.Background(), "chat-1", "🔧 `write_file`")
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if !handled || msgID != "msg-1" {
+		t.Fatalf("Update() = (%q, %v), want (msg-1, true)", msgID, handled)
+	}
+	if editCalls != 0 {
+		t.Fatalf("edit calls = %d, want 0 while debounced", editCalls)
+	}
+	_, baseContent, ok := animator.Take("chat-1")
+	if !ok {
+		t.Fatal("expected debounced update to keep tracking")
+	}
+	if baseContent != "🔧 `write_file`" {
+		t.Fatalf("tracked content = %q, want latest content", baseContent)
+	}
+}
+
+func TestToolFeedbackAnimator_RetryAfterDelayParsesTelegramErrorWhenConfigured(t *testing.T) {
+	animator := NewToolFeedbackAnimator(nil)
+	animator.Configure(ToolFeedbackAnimatorConfig{MinEditInterval: 10 * time.Second})
+
+	err := fmt.Errorf("telego: editMessageText: api: 429 %q: %w", "Too Many Requests: retry after 14", ErrRateLimit)
+	delay, ok := animator.retryAfterDelay(err)
+	if !ok {
+		t.Fatal("retryAfterDelay() ok = false, want true")
+	}
+	if delay != 14*time.Second {
+		t.Fatalf("retryAfterDelay() = %v, want 14s", delay)
+	}
+}
+
+func TestToolFeedbackAnimator_RetryAfterDisabledByDefault(t *testing.T) {
+	animator := NewToolFeedbackAnimator(nil)
+	err := fmt.Errorf("telego: editMessageText: api: 429 %q: %w", "Too Many Requests: retry after 14", ErrRateLimit)
+	if delay, ok := animator.retryAfterDelay(err); ok {
+		t.Fatalf("retryAfterDelay() = (%v, true), want disabled by default", delay)
 	}
 }

@@ -68,6 +68,8 @@ Debug logs are server-side only. If you want the agent to send a visible notific
         "max_args_length": 300,
         "separate_messages": true,
         "subagents": true,
+        "animation_interval_secs": 3,
+        "edit_min_interval_seconds": 0
         "style": "raw"
       }
     }
@@ -126,6 +128,8 @@ The `working_summary` style intentionally does not show raw tool arguments, expl
 | `subagents` | bool | `true` | Also publish visible tool feedback for subagent turns when `enabled` is true |
 | `max_args_length` | int | `300` | Maximum characters of the serialised arguments included in the notification |
 | `style` | string | `raw` | Feedback format. Use `raw` for the original tool/explanation/argument preview, or `working_summary` for compact progress lines without raw arguments |
+| `animation_interval_secs` | int | `3` | Seconds between progress animation edits for channels that support editable tool feedback |
+| `edit_min_interval_seconds` | int | `0` | Minimum seconds between edits of the same tracked progress message. `0` preserves legacy behavior with no edit throttle |
 
 ### Environment variables
 
@@ -136,6 +140,8 @@ PICOCLAW_AGENTS_DEFAULTS_TOOL_FEEDBACK_ENABLED=true
 PICOCLAW_AGENTS_DEFAULTS_TOOL_FEEDBACK_MAX_ARGS_LENGTH=300
 PICOCLAW_AGENTS_DEFAULTS_TOOL_FEEDBACK_SEPARATE_MESSAGES=false
 PICOCLAW_AGENTS_DEFAULTS_TOOL_FEEDBACK_STYLE=working_summary
+PICOCLAW_AGENTS_DEFAULTS_TOOL_FEEDBACK_ANIMATION_INTERVAL_SECS=3
+PICOCLAW_AGENTS_DEFAULTS_TOOL_FEEDBACK_EDIT_MIN_INTERVAL_SECONDS=10
 ```
 
 > **Note:** `tool_feedback` is independent of `--debug` mode. It works in production and does not require the gateway to be started with any special flag.
