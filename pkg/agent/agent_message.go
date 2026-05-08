@@ -93,7 +93,7 @@ func (al *AgentLoop) processDirectWithChannel(
 }
 
 func (al *AgentLoop) processScheduledMessage(ctx context.Context, msg bus.InboundMessage) (string, error) {
-	msg = bus.NormalizeInboundMessage(msg)
+	msg = al.prepareInboundMessageForAgent(ctx, msg)
 	route, agent, routeErr := al.resolveMessageRoute(msg)
 	if routeErr != nil {
 		return "", routeErr
