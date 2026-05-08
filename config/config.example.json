@@ -22,7 +22,22 @@
         "edit_min_interval_seconds": 0,
         "style": "raw"
       }
-    }
+    },
+    "list": [
+      {
+        "id": "main",
+        "default": true,
+        "tools": {
+          "deny": ["mcp_gpt_researcher_*"]
+        }
+      },
+      {
+        "id": "deep-research",
+        "tools": {
+          "allow": ["*"]
+        }
+      }
+    ]
   },
   "evolution": {
     "enabled": false,

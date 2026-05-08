@@ -304,6 +304,61 @@ Example injected shape:
 
 In practice, this means a generalist agent can choose a peer based on its role description, then call `spawn` with the peer's `agent_id`. The runtime resolves the rest.
 
+### Per-agent tool filtering
+
+You can restrict tool visibility per agent with `agents.list[].tools`.
+
+```json
+{
+  "agents": {
+    "list": [
+      {
+        "id": "main",
+        "default": true,
+        "tools": {
+          "deny": ["mcp_gpt_researcher_*"]
+        }
+      },
+      {
+        "id": "deep-research",
+        "tools": {
+          "allow": ["*"]
+        }
+      }
+    ]
+  }
+}
+```
+
+Rules:
+
+- If neither `allow` nor `deny` is set, the agent sees the normal tool set.
+- If `allow` is set, it acts like a whitelist:
+  - only tool names matching at least one `allow` glob remain visible.
+- If `deny` is set, matching tools are removed from the visible set.
+- If both are set:
+  1. `allow` is applied first
+  2. `deny` is applied second
+  3. `deny` wins on overlap
+
+Examples:
+
+- `allow: ["mcp_*", "web_fetch"]`
+  - agent sees only MCP tools plus `web_fetch`
+- `deny: ["mcp_gpt_researcher_*"]`
+  - agent sees everything except GPT Researcher tools
+- `allow: ["mcp_*"]` + `deny: ["mcp_gpt_researcher_*"]`
+  - agent sees only MCP tools, except GPT Researcher tools
+
+Patterns use shell-style globs matched against the final runtime tool name, for example:
+
+- `mcp_gpt_researcher_*`
+- `mcp_inventorydb_*`
+- `web_*`
+- `spawn`
+
+This filtering is enforced at tool registration time. Filtered tools do not appear in the agent's prompt/tool list and cannot be called by that agent.
+
 ### 🔒 Security Sandbox
 
 PicoClaw runs in a sandboxed environment by default. The agent can only access files and execute commands within the configured workspace.

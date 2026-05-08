@@ -2,6 +2,8 @@
 
 PicoClaw's tools configuration is located in the `tools` field of `config.json`.
 
+> **Related:** Per-agent tool filtering is configured under `agents.list[].tools`, not under the top-level `tools` section. See the [Configuration Guide](../guides/configuration.md#per-agent-tool-filtering).
+
 ## Directory Structure
 
 ```json

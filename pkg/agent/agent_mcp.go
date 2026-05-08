@@ -168,10 +168,14 @@ func (al *AgentLoop) ensureMCPInitialized(ctx context.Context) error {
 					mcpTool.SetMaxInlineTextRunes(al.cfg.Tools.MCP.GetMaxInlineTextChars())
 					mcpTool.SetEventPublisher(al.runtimeEvents)
 
+					var registered bool
 					if registerAsHidden {
-						agent.Tools.RegisterHidden(mcpTool)
+						registered = registerHiddenToolIfAllowed(agent, mcpTool)
 					} else {
-						agent.Tools.Register(mcpTool)
+						registered = registerToolIfAllowed(agent, mcpTool)
+					}
+					if !registered {
+						continue
 					}
 					if !toolRegistryIncludes(agent.Tools, toolName) {
 						continue
@@ -255,10 +259,10 @@ func (al *AgentLoop) ensureMCPInitialized(ctx context.Context) error {
 				}
 
 				if useRegex {
-					agent.Tools.Register(tools.NewRegexSearchTool(agent.Tools, ttl, maxSearchResults))
+					registerToolIfAllowed(agent, tools.NewRegexSearchTool(agent.Tools, ttl, maxSearchResults))
 				}
 				if useBM25 {
-					agent.Tools.Register(tools.NewBM25SearchTool(agent.Tools, ttl, maxSearchResults))
+					registerToolIfAllowed(agent, tools.NewBM25SearchTool(agent.Tools, ttl, maxSearchResults))
 				}
 			}
 		}
