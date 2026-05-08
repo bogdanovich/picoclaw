@@ -460,19 +460,24 @@ func spawnSubTurn(
 			})
 		}
 
+		// Child turns publish session-scoped working feedback. Dismiss that
+		// feedback when the child finishes regardless of async/sync delivery;
+		// synchronous delegate/subagent calls return their result inline to the
+		// parent and should not leave an orphaned animator behind.
+		if al != nil && al.channelManager != nil && childTS.channel != "" {
+			dismissCtx, dismissCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			al.channelManager.DismissToolFeedbackForSession(
+				dismissCtx,
+				childTS.channel,
+				childTS.chatID,
+				childTS.opts.Dispatch.InboundContext,
+				childID,
+			)
+			dismissCancel()
+		}
+
 		// Result Delivery Strategy (Async vs Sync)
 		if cfg.Async {
-			if al != nil && al.channelManager != nil && childTS.channel != "" {
-				dismissCtx, dismissCancel := context.WithTimeout(context.Background(), 5*time.Second)
-				al.channelManager.DismissToolFeedbackForSession(
-					dismissCtx,
-					childTS.channel,
-					childTS.chatID,
-					childTS.opts.Dispatch.InboundContext,
-					childID,
-				)
-				dismissCancel()
-			}
 			deliverSubTurnResult(al, parentTS, childID, result)
 		}
 

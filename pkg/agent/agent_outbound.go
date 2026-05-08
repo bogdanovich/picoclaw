@@ -66,11 +66,12 @@ func (al *AgentLoop) publishResponseWithContextIfNeeded(
 	if alreadySentToSameChat {
 		if al.channelManager != nil && channel != "" && chatID != "" {
 			dismissCtx, dismissCancel := context.WithTimeout(ctx, 5*time.Second)
-			al.channelManager.DismissToolFeedback(
+			al.channelManager.DismissToolFeedbackForSession(
 				dismissCtx,
 				channel,
 				chatID,
-				nil,
+				inboundCtx,
+				sessionKey,
 			)
 			dismissCancel()
 		}

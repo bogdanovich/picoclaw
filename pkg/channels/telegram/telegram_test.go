@@ -511,6 +511,37 @@ func TestFinalizeTrackedToolFeedbackMessage_StopsTrackingBeforeEdit(t *testing.T
 	assert.Equal(t, []string{"1"}, msgIDs)
 }
 
+func TestFinalizeToolFeedbackMessage_UsesSessionScopedTrackerKey(t *testing.T) {
+	caller := &stubCaller{
+		callFn: func(ctx context.Context, url string, data *ta.RequestData) (*ta.Response, error) {
+			return successResponse(t), nil
+		},
+	}
+	ch := newTestChannel(t, caller)
+	ch.progress = channels.NewToolFeedbackAnimator(ch.EditMessage)
+	ch.RecordToolFeedbackMessage("-1001234567890/42#session:session-1", "7", "Working...\n• tool: `spawn`")
+
+	msgIDs, handled := ch.FinalizeToolFeedbackMessage(context.Background(), bus.OutboundMessage{
+		ChatID:     "-1001234567890",
+		SessionKey: "session-1",
+		Content:    "final reply",
+		Context: bus.InboundContext{
+			Channel: "telegram",
+			ChatID:  "-1001234567890",
+			TopicID: "42",
+		},
+	})
+
+	assert.True(t, handled)
+	assert.Equal(t, []string{"7"}, msgIDs)
+	require.Len(t, caller.calls, 1)
+	assert.Contains(t, caller.calls[0].URL, "editMessageText")
+	assert.NotContains(t, caller.calls[0].URL, "%23session")
+	assert.NotContains(t, caller.calls[0].URL, "#session")
+	_, ok := ch.currentToolFeedbackMessage("-1001234567890/42#session:session-1")
+	assert.False(t, ok)
+}
+
 func TestSend_ToolFeedbackStaysSingleMessageAfterHTMLExpansion(t *testing.T) {
 	caller := &stubCaller{
 		callFn: func(ctx context.Context, url string, data *ta.RequestData) (*ta.Response, error) {

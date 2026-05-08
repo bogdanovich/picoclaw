@@ -608,7 +608,7 @@ func (c *TelegramChannel) FinalizeToolFeedbackMessage(ctx context.Context, msg b
 	if outboundMessageIsToolFeedback(msg) {
 		return nil, false
 	}
-	return c.finalizeToolFeedbackMessageForChat(ctx, telegramResolvedChatID(msg.ChatID, &msg.Context), msg)
+	return c.finalizeToolFeedbackMessageForChat(ctx, telegramToolFeedbackTrackerKey(msg), msg)
 }
 
 func (c *TelegramChannel) finalizeToolFeedbackMessageForChat(
