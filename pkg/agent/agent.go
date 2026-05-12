@@ -596,36 +596,7 @@ func (al *AgentLoop) runAgentLoop(
 		}
 	}
 
-	if opts.SendResponse && result.finalContent != "" {
-		agentID, sessionKey, scope := outboundTurnMetadata(
-			agent.ID,
-			opts.Dispatch.SessionKey,
-			opts.Dispatch.SessionScope,
-		)
-		outboundCtx := outboundContextFromInbound(
-			opts.Dispatch.InboundContext,
-			opts.Dispatch.Channel(),
-			opts.Dispatch.ChatID(),
-			opts.Dispatch.ReplyToMessageID(),
-		)
-		if result.preferNewOutboundReply || agentMessageToolSentToTurnTarget(agent, sessionKey, opts.Dispatch) {
-			outboundCtx = outboundContextWithMessageKind(
-				opts.Dispatch.InboundContext,
-				opts.Dispatch.Channel(),
-				opts.Dispatch.ChatID(),
-				opts.Dispatch.ReplyToMessageID(),
-				messageKindFinalReply,
-			)
-		}
-		al.bus.PublishOutbound(ctx, bus.OutboundMessage{
-			Context:      outboundCtx,
-			AgentID:      agentID,
-			SessionKey:   sessionKey,
-			Scope:        scope,
-			Content:      result.finalContent,
-			ContextUsage: computeContextUsage(agent, opts.Dispatch.SessionKey),
-		})
-	}
+	al.deliverFinalTurnResult(ctx, agent, opts, result)
 
 	if result.finalContent != "" {
 		responsePreview := utils.Truncate(result.finalContent, 120)

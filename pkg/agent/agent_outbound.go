@@ -159,6 +159,49 @@ func (al *AgentLoop) publishResponseWithContextIfNeeded(
 	al.bus.PublishOutbound(ctx, msg)
 }
 
+func (al *AgentLoop) deliverFinalTurnResult(
+	ctx context.Context,
+	agent *AgentInstance,
+	opts processOptions,
+	result turnResult,
+) {
+	if al == nil || al.bus == nil || agent == nil {
+		return
+	}
+	if !opts.SendResponse || result.finalContent == "" {
+		return
+	}
+
+	agentID, sessionKey, scope := outboundTurnMetadata(
+		agent.ID,
+		opts.Dispatch.SessionKey,
+		opts.Dispatch.SessionScope,
+	)
+	outboundCtx := outboundContextFromInbound(
+		opts.Dispatch.InboundContext,
+		opts.Dispatch.Channel(),
+		opts.Dispatch.ChatID(),
+		opts.Dispatch.ReplyToMessageID(),
+	)
+	if result.preferNewOutboundReply || agentMessageToolSentToTurnTarget(agent, sessionKey, opts.Dispatch) {
+		outboundCtx = outboundContextWithMessageKind(
+			opts.Dispatch.InboundContext,
+			opts.Dispatch.Channel(),
+			opts.Dispatch.ChatID(),
+			opts.Dispatch.ReplyToMessageID(),
+			messageKindFinalReply,
+		)
+	}
+	al.bus.PublishOutbound(ctx, bus.OutboundMessage{
+		Context:      outboundCtx,
+		AgentID:      agentID,
+		SessionKey:   sessionKey,
+		Scope:        scope,
+		Content:      result.finalContent,
+		ContextUsage: computeContextUsage(agent, opts.Dispatch.SessionKey),
+	})
+}
+
 func (al *AgentLoop) deliverToolResultToUser(
 	ctx context.Context,
 	ts *turnState,
