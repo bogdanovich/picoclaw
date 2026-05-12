@@ -121,6 +121,24 @@ func successMediaGroupResponse(t *testing.T, messageIDs ...int) *ta.Response {
 	return &ta.Response{Ok: true, Result: b}
 }
 
+func TestTelegramChannel_ConfigureToolFeedbackAnimator(t *testing.T) {
+	bc := &config.Channel{Type: config.ChannelTelegram, Enabled: true}
+	tgCfg := &config.TelegramSettings{Token: *config.NewSecureString(testToken)}
+	ch, err := NewTelegramChannel(bc, tgCfg, bus.NewMessageBus())
+	if err != nil {
+		t.Fatalf("NewTelegramChannel() error = %v", err)
+	}
+
+	ch.ConfigureToolFeedbackAnimator(channels.ToolFeedbackAnimatorConfig{
+		AnimationInterval: 7 * time.Second,
+		MinEditInterval:   11 * time.Second,
+	})
+
+	if ch.progress == nil {
+		t.Fatal("expected tool feedback animator")
+	}
+}
+
 func successUserResponse(t *testing.T, user *telego.User) *ta.Response {
 	t.Helper()
 	b, err := json.Marshal(user)

@@ -78,6 +78,10 @@ func (t *MCPTool) SetEventPublisher(eventBus runtimeevents.Bus) {
 	t.runtimeEvents = eventBus
 }
 
+func (t *MCPTool) MCPServerName() string {
+	return t.serverName
+}
+
 const maxMCPInlineTextRunes = 16 * 1024
 
 // sanitizeIdentifierComponent normalizes a string so it can be safely used

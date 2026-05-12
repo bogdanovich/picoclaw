@@ -149,6 +149,12 @@ func telegramMediaGroupDelay(telegramCfg *config.TelegramSettings) time.Duration
 	return defaultMediaGroupDelay
 }
 
+func (c *TelegramChannel) ConfigureToolFeedbackAnimator(cfg channels.ToolFeedbackAnimatorConfig) {
+	if c.progress != nil {
+		c.progress.Configure(cfg)
+	}
+}
+
 func (c *TelegramChannel) Start(ctx context.Context) error {
 	logger.InfoC("telegram", "Starting Telegram bot (polling mode)...")
 

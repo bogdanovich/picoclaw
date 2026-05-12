@@ -179,3 +179,94 @@ func TestRunAgentLoop_AbortsRepeatedFatalToolTransportErrors(t *testing.T) {
 		t.Fatalf("provider calls = %d, want %d", provider.calls, repeatedFatalToolErrorStreakLimit)
 	}
 }
+
+type fatalMCPServerTool struct{}
+
+func (t *fatalMCPServerTool) Name() string { return "mcp_gpt_researcher_quick_search" }
+func (t *fatalMCPServerTool) Description() string {
+	return "Fails with a fatal MCP server transport error"
+}
+func (t *fatalMCPServerTool) Parameters() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"query": map[string]any{
+				"type": "string",
+			},
+		},
+	}
+}
+func (t *fatalMCPServerTool) MCPServerName() string { return "gpt_researcher" }
+func (t *fatalMCPServerTool) Execute(ctx context.Context, args map[string]any) *tools.ToolResult {
+	err := `MCP tool execution failed: failed to call tool: connection closed: calling "tools/call": client is closing: invalid character 'ð' looking for beginning of value`
+	return tools.ErrorResult(err)
+}
+
+func TestRunAgentLoop_AbortsFatalMCPServerTransportErrorImmediately(t *testing.T) {
+	workspace := t.TempDir()
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace:         workspace,
+				ModelName:         "test-model",
+				MaxTokens:         2048,
+				MaxToolIterations: 20,
+			},
+		},
+	}
+
+	msgBus := bus.NewMessageBus()
+	provider := &repeatingFatalToolProvider{}
+	al := NewAgentLoop(cfg, msgBus, provider)
+	al.RegisterTool(&fatalMCPServerTool{})
+
+	defaultAgent := al.registry.GetDefaultAgent()
+	if defaultAgent == nil {
+		t.Fatal("expected default agent")
+	}
+
+	response, err := al.runAgentLoop(context.Background(), defaultAgent, processOptions{
+		SessionKey:      "session-fatal-mcp-server",
+		Channel:         "cli",
+		ChatID:          "direct",
+		UserMessage:     "run research",
+		DefaultResponse: defaultResponse,
+		EnableSummary:   false,
+		SendResponse:    false,
+		InboundContext: &bus.InboundContext{
+			Channel:  "cli",
+			ChatID:   "direct",
+			ChatType: "direct",
+			SenderID: "tester",
+		},
+		RouteResult: &routing.ResolvedRoute{
+			AgentID:   "main",
+			Channel:   "cli",
+			AccountID: routing.DefaultAccountID,
+			SessionPolicy: routing.SessionPolicy{
+				Dimensions: []string{"sender"},
+			},
+			MatchedBy: "default",
+		},
+		SessionScope: &session.SessionScope{
+			Version:    session.ScopeVersionV1,
+			AgentID:    "main",
+			Channel:    "cli",
+			Account:    routing.DefaultAccountID,
+			Dimensions: []string{"sender"},
+			Values: map[string]string{
+				"sender": "tester",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("runAgentLoop() error = %v", err)
+	}
+	want := "I hit a backend MCP transport error while using the `gpt_researcher` server and stopped instead of trying workarounds. Please restart or fix that MCP server, then try again."
+	if response != want {
+		t.Fatalf("runAgentLoop() response = %q, want %q", response, want)
+	}
+	if provider.calls != 1 {
+		t.Fatalf("provider calls = %d, want 1", provider.calls)
+	}
+}

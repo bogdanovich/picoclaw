@@ -22,6 +22,10 @@ import (
 
 const repeatedFatalToolErrorStreakLimit = 3
 
+type mcpServerTool interface {
+	MCPServerName() string
+}
+
 func toolErrorSummary(result *tools.ToolResult) string {
 	if result == nil || !result.IsError {
 		return ""
@@ -54,6 +58,39 @@ func repeatedFatalToolErrorReply(toolName string) string {
 		"I hit repeated backend tool transport errors while using `%s` and stopped instead of retrying indefinitely. Please try again.",
 		toolName,
 	)
+}
+
+func fatalMCPServerErrorReply(serverName, toolName string) string {
+	serverName = strings.TrimSpace(serverName)
+	toolName = strings.TrimSpace(toolName)
+	if serverName != "" {
+		return fmt.Sprintf(
+			"I hit a backend MCP transport error while using the `%s` server and stopped instead of trying workarounds. Please restart or fix that MCP server, then try again.",
+			serverName,
+		)
+	}
+	if toolName != "" {
+		return fmt.Sprintf(
+			"I hit a backend MCP transport error while using `%s` and stopped instead of trying workarounds. Please restart or fix that MCP server, then try again.",
+			toolName,
+		)
+	}
+	return "I hit a backend MCP transport error and stopped instead of trying workarounds. Please restart or fix that MCP server, then try again."
+}
+
+func mcpServerNameForTool(ts *turnState, toolName string) string {
+	if ts == nil || ts.agent == nil || ts.agent.Tools == nil {
+		return ""
+	}
+	tool, ok := ts.agent.Tools.Get(toolName)
+	if !ok || tool == nil {
+		return ""
+	}
+	mcpTool, ok := tool.(mcpServerTool)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(mcpTool.MCPServerName())
 }
 
 func inferSkillNamesFromToolCall(ts *turnState, toolName string, toolArgs map[string]any) []string {
@@ -551,6 +588,7 @@ toolLoop:
 
 		toolCallID := tc.ID
 		asyncToolName := toolName
+		mcpServerName := mcpServerNameForTool(ts, toolName)
 		asyncCallback := func(_ context.Context, result *tools.ToolResult) {
 			if result != nil && result.IsError {
 				content := strings.TrimSpace(result.ForUser)
@@ -757,6 +795,27 @@ toolLoop:
 		if toolResult.IsError {
 			errSummary := toolErrorSummary(toolResult)
 			if isFatalMCPTransportErrorSummary(errSummary) {
+				if mcpServerName != "" {
+					logger.WarnCF("agent", "Fatal MCP server transport error; aborting turn to avoid workaround loop",
+						map[string]any{
+							"agent_id":   ts.agent.ID,
+							"iteration":  iteration,
+							"tool":       toolName,
+							"mcp_server": mcpServerName,
+							"error":      errSummary,
+							"session_id": ts.sessionKey,
+						})
+					exec.finalContent = fatalMCPServerErrorReply(mcpServerName, toolName)
+					exec.allResponsesHandled = false
+					messages = append(messages, toolResultMsg)
+					if !ts.opts.NoHistory {
+						ts.agent.Sessions.AddFullMessage(ts.sessionKey, toolResultMsg)
+						ts.recordPersistedMessage(toolResultMsg)
+						ts.ingestMessage(turnCtx, al, toolResultMsg)
+					}
+					exec.messages = messages
+					return ToolControlBreak
+				}
 				streak := ts.recentToolExecutionErrorStreak(toolName, func(rec ToolExecutionRecord) bool {
 					return isFatalMCPTransportErrorSummary(rec.ErrorSummary)
 				})
