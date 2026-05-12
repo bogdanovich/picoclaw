@@ -229,14 +229,28 @@ func (al *AgentLoop) deliverFinalTurnResult(
 	if result.finalContent == "" {
 		return
 	}
-	al.bus.PublishOutbound(ctx, bus.OutboundMessage{
+	msg := bus.OutboundMessage{
 		Context:      outboundCtx,
 		AgentID:      agentID,
 		SessionKey:   sessionKey,
 		Scope:        scope,
 		Content:      result.finalContent,
 		ContextUsage: computeContextUsage(agent, opts.Dispatch.SessionKey),
-	})
+	}
+	if al.channelManager != nil && opts.Dispatch.Channel() != "" && !constants.IsInternalChannel(opts.Dispatch.Channel()) {
+		if err := al.channelManager.SendMessage(ctx, msg); err != nil {
+			logger.WarnCF("agent", "Failed to deliver final turn message synchronously; falling back to bus",
+				map[string]any{
+					"agent_id": agent.ID,
+					"channel":  opts.Dispatch.Channel(),
+					"chat_id":  opts.Dispatch.ChatID(),
+					"error":    err.Error(),
+				})
+		} else {
+			return
+		}
+	}
+	al.bus.PublishOutbound(ctx, msg)
 }
 
 func (al *AgentLoop) deliverToolResultToUser(
