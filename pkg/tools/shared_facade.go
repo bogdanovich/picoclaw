@@ -117,6 +117,10 @@ func SilentResult(forLLM string) *ToolResult {
 
 type AsyncDeliveryMode = toolshared.AsyncDeliveryMode
 
+func DiffResult(path string, before, after []byte) *ToolResult {
+	return toolshared.DiffResult(path, before, after)
+}
+
 func AsyncResult(forLLM string) *ToolResult {
 	return toolshared.AsyncResult(forLLM)
 }
