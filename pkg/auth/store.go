@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/config"
@@ -29,7 +30,10 @@ type AuthStore struct {
 const (
 	providerGoogleAntigravity = "google-antigravity"
 	providerAntigravityAlias  = "antigravity"
+	envAuthFile               = "PICOCLAW_AUTH_FILE"
 )
+
+var authStoreMu sync.Mutex
 
 func (c *AuthCredential) IsExpired() bool {
 	if c.ExpiresAt.IsZero() {
@@ -46,7 +50,50 @@ func (c *AuthCredential) NeedsRefresh() bool {
 }
 
 func authFilePath() string {
+	if path := strings.TrimSpace(os.Getenv(envAuthFile)); path != "" {
+		return filepath.Clean(path)
+	}
 	return filepath.Join(config.GetHome(), "auth.json")
+}
+
+func authLockPath() string {
+	path := authFilePath()
+	if realPath, err := filepath.EvalSymlinks(path); err == nil && strings.TrimSpace(realPath) != "" {
+		path = realPath
+	}
+	return path + ".lock"
+}
+
+func withAuthStoreLock(fn func() error) error {
+	authStoreMu.Lock()
+	defer authStoreMu.Unlock()
+
+	lockPath := authLockPath()
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
+		return err
+	}
+
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err == nil {
+			_, _ = f.Write([]byte(time.Now().Format(time.RFC3339Nano)))
+			_ = f.Close()
+			defer os.Remove(lockPath)
+			return fn()
+		}
+		if !os.IsExist(err) {
+			return err
+		}
+		if info, statErr := os.Stat(lockPath); statErr == nil && time.Since(info.ModTime()) > 2*time.Minute {
+			_ = os.Remove(lockPath)
+			continue
+		}
+		if time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 func canonicalProvider(provider string) string {

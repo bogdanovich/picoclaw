@@ -15,17 +15,38 @@ func GetOpenAIToken() (accessToken, accountID string, err error) {
 	}
 
 	if cred.AuthMethod == "oauth" && cred.NeedsRefresh() && cred.RefreshToken != "" {
-		refreshed, err := RefreshAccessToken(cred, OpenAIOAuthConfig())
-		if err != nil {
-			return "", "", fmt.Errorf("refreshing token: %w", err)
+		var refreshedAccessToken, refreshedAccountID string
+		if err := withAuthStoreLock(func() error {
+			current, err := GetCredential("openai")
+			if err != nil {
+				return fmt.Errorf("loading auth credentials: %w", err)
+			}
+			if current == nil {
+				return fmt.Errorf("no credentials for openai. Run: picoclaw auth login --provider openai")
+			}
+			if current.AuthMethod != "oauth" || !current.NeedsRefresh() || current.RefreshToken == "" {
+				refreshedAccessToken = current.AccessToken
+				refreshedAccountID = current.AccountID
+				return nil
+			}
+
+			refreshed, err := RefreshAccessToken(current, OpenAIOAuthConfig())
+			if err != nil {
+				return fmt.Errorf("refreshing token: %w", err)
+			}
+			if refreshed.AccountID == "" {
+				refreshed.AccountID = current.AccountID
+			}
+			if err := SetCredential("openai", refreshed); err != nil {
+				return fmt.Errorf("saving refreshed token: %w", err)
+			}
+			refreshedAccessToken = refreshed.AccessToken
+			refreshedAccountID = refreshed.AccountID
+			return nil
+		}); err != nil {
+			return "", "", err
 		}
-		if refreshed.AccountID == "" {
-			refreshed.AccountID = cred.AccountID
-		}
-		if err := SetCredential("openai", refreshed); err != nil {
-			return "", "", fmt.Errorf("saving refreshed token: %w", err)
-		}
-		return refreshed.AccessToken, refreshed.AccountID, nil
+		return refreshedAccessToken, refreshedAccountID, nil
 	}
 
 	return cred.AccessToken, cred.AccountID, nil
