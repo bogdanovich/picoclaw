@@ -641,6 +641,7 @@ toolLoop:
 			)
 			pubCtx, pubCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer pubCancel()
+			completionID := asyncCompletionID(ts.turnID, toolCallID, asyncToolName)
 			_ = al.bus.PublishInbound(pubCtx, bus.InboundMessage{
 				Context: bus.InboundContext{
 					Channel:  "system",
@@ -648,7 +649,7 @@ toolLoop:
 					ChatType: "direct",
 					SenderID: fmt.Sprintf("async:%s", asyncToolName),
 					TopicID:  originTopicID(ts.opts.Dispatch.InboundContext),
-					Raw:      systemFollowUpAsyncCompletionRaw(ts.opts.Dispatch.InboundContext, ts.channel, ts.chatID),
+					Raw:      systemFollowUpAsyncCompletionRaw(ts.opts.Dispatch.InboundContext, ts.channel, ts.chatID, completionID),
 				},
 				Content: asyncCompletionPrompt(asyncToolName, content),
 			})

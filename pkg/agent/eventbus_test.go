@@ -909,6 +909,7 @@ func TestAsyncToolResultDeliveryRouting(t *testing.T) {
 
 type captureMessagesProvider struct {
 	response string
+	calls    int
 	messages []providers.Message
 }
 
@@ -919,6 +920,7 @@ func (p *captureMessagesProvider) Chat(
 	model string,
 	opts map[string]any,
 ) (*providers.LLMResponse, error) {
+	p.calls++
 	p.messages = append([]providers.Message(nil), messages...)
 	return &providers.LLMResponse{Content: p.response}, nil
 }
@@ -963,7 +965,7 @@ func TestProcessAsyncCompletionMessageUsesNoHistory(t *testing.T) {
 				Channel:  "telegram",
 				ChatID:   "chat-1",
 				ChatType: "direct",
-			}, "telegram", "chat-1"),
+			}, "telegram", "chat-1", "completion-1"),
 		},
 		Content: asyncCompletionPrompt("spawn", "fresh background result"),
 	}
@@ -992,5 +994,49 @@ func TestProcessAsyncCompletionMessageUsesNoHistory(t *testing.T) {
 	history := defaultAgent.Sessions.GetHistory(sessionKey)
 	if len(history) != 2 {
 		t.Fatalf("history length = %d, want 2 existing messages only", len(history))
+	}
+}
+
+func TestProcessAsyncCompletionMessageSkipsDuplicateCompletionID(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace: tmpDir,
+				ModelName: "test-model",
+				MaxTokens: 4096,
+			},
+		},
+	}
+	provider := &captureMessagesProvider{response: "completion summary"}
+	msgBus := bus.NewMessageBus()
+	al := NewAgentLoop(cfg, msgBus, provider)
+
+	msg := bus.InboundMessage{
+		Channel:  "system",
+		ChatID:   "telegram:chat-1",
+		SenderID: "async:spawn",
+		Context: bus.InboundContext{
+			Channel:  "system",
+			ChatID:   "telegram:chat-1",
+			ChatType: "direct",
+			SenderID: "async:spawn",
+			Raw: systemFollowUpAsyncCompletionRaw(&bus.InboundContext{
+				Channel:  "telegram",
+				ChatID:   "chat-1",
+				ChatType: "direct",
+			}, "telegram", "chat-1", "same-completion"),
+		},
+		Content: asyncCompletionPrompt("spawn", "fresh background result"),
+	}
+
+	if _, err := al.processSystemMessage(context.Background(), msg); err != nil {
+		t.Fatalf("first processSystemMessage failed: %v", err)
+	}
+	if _, err := al.processSystemMessage(context.Background(), msg); err != nil {
+		t.Fatalf("second processSystemMessage failed: %v", err)
+	}
+	if provider.calls != 1 {
+		t.Fatalf("provider calls = %d, want 1", provider.calls)
 	}
 }

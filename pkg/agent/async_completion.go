@@ -5,6 +5,20 @@ import (
 	"strings"
 )
 
+func asyncCompletionID(turnID, toolCallID, toolName string) string {
+	parts := []string{
+		strings.TrimSpace(turnID),
+		strings.TrimSpace(toolCallID),
+		strings.TrimSpace(toolName),
+	}
+	for i, part := range parts {
+		if part == "" {
+			parts[i] = "unknown"
+		}
+	}
+	return strings.Join(parts, ":")
+}
+
 func asyncCompletionPrompt(toolName, result string) string {
 	toolName = strings.TrimSpace(toolName)
 	if toolName == "" {

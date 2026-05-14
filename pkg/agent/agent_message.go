@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/constants"
@@ -24,6 +25,8 @@ const (
 	systemFollowUpOriginReplyToMessageIDKey = "origin_reply_to_message_id"
 	systemFollowUpKindKey                   = "kind"
 	systemFollowUpKindAsyncCompletion       = "async_completion"
+	systemFollowUpIDKey                     = "completion_id"
+	asyncCompletionSynthesisTimeout         = 120 * time.Second
 )
 
 func (al *AgentLoop) buildContinuationTarget(msg bus.InboundMessage) (*continuationTarget, error) {
@@ -337,9 +340,12 @@ func systemFollowUpOriginRaw(origin *bus.InboundContext, channel, chatID string)
 	return raw
 }
 
-func systemFollowUpAsyncCompletionRaw(origin *bus.InboundContext, channel, chatID string) map[string]string {
+func systemFollowUpAsyncCompletionRaw(origin *bus.InboundContext, channel, chatID, completionID string) map[string]string {
 	raw := systemFollowUpOriginRaw(origin, channel, chatID)
 	raw[systemFollowUpKindKey] = systemFollowUpKindAsyncCompletion
+	if strings.TrimSpace(completionID) != "" {
+		raw[systemFollowUpIDKey] = strings.TrimSpace(completionID)
+	}
 	return raw
 }
 
@@ -470,7 +476,7 @@ func (al *AgentLoop) processAsyncCompletionMessage(
 	ctx context.Context,
 	msg bus.InboundMessage,
 	origin bus.InboundContext,
-) (string, error) {
+) (response string, err error) {
 	if constants.IsInternalChannel(origin.Channel) {
 		logger.InfoCF("agent", "Async completion received for internal channel",
 			map[string]any{
@@ -486,6 +492,23 @@ func (al *AgentLoop) processAsyncCompletionMessage(
 		return "", fmt.Errorf("no default agent for async completion message")
 	}
 
+	completionID := strings.TrimSpace(msg.Context.Raw[systemFollowUpIDKey])
+	if completionID != "" {
+		if _, loaded := al.asyncCompletions.LoadOrStore(completionID, struct{}{}); loaded {
+			logger.InfoCF("agent", "Skipping duplicate async completion",
+				map[string]any{
+					"completion_id": completionID,
+					"sender_id":     msg.SenderID,
+				})
+			return "", nil
+		}
+		defer func() {
+			if err != nil {
+				al.asyncCompletions.LoadAndDelete(completionID)
+			}
+		}()
+	}
+
 	sessionKey := session.BuildMainSessionKey(agent.ID)
 	dispatch := DispatchRequest{
 		SessionKey:     sessionKey,
@@ -493,7 +516,10 @@ func (al *AgentLoop) processAsyncCompletionMessage(
 		InboundContext: &origin,
 	}
 
-	return al.runAgentLoop(ctx, agent, processOptions{
+	runCtx, cancel := context.WithTimeout(ctx, asyncCompletionSynthesisTimeout)
+	defer cancel()
+
+	return al.runAgentLoop(runCtx, agent, processOptions{
 		Dispatch:             dispatch,
 		DefaultResponse:      "Background task completed.",
 		EnableSummary:        false,
