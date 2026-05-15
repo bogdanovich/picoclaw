@@ -284,6 +284,22 @@ func TestNewAgentLoop_DoesNotRegisterWebSearchTool_WhenNoReadyProviders(t *testi
 	}
 }
 
+func TestNewAgentLoop_RegistersImageGenerateTool(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Agents.Defaults.Workspace = t.TempDir()
+	cfg.Tools.ImageGenerate.Enabled = true
+
+	al := NewAgentLoop(cfg, bus.NewMessageBus(), &mockProvider{})
+
+	agent := al.registry.GetDefaultAgent()
+	if agent == nil {
+		t.Fatal("expected default agent")
+	}
+	if _, ok := agent.Tools.Get("image_generate"); !ok {
+		t.Fatal("expected image_generate tool to be registered")
+	}
+}
+
 func TestPublishResponseIfNeeded_DismissesToolFeedbackWhenMessageToolAlreadySent(t *testing.T) {
 	al, cfg, msgBus, provider, cleanup := newTestAgentLoop(t)
 	defer cleanup()
