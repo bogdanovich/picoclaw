@@ -35,7 +35,7 @@ func (m *mockSpawner) SpawnSubTurn(ctx context.Context, cfg SubTurnConfig) (*Too
 
 func TestSpawnTool_Execute_EmptyTask(t *testing.T) {
 	provider := &MockLLMProvider{}
-	manager := NewSubagentManager(provider, "test-model", "/tmp/test")
+	manager := NewSubagentManager(provider, "test-model", t.TempDir())
 	tool := NewSpawnTool(manager)
 
 	ctx := context.Background()
@@ -69,7 +69,7 @@ func TestSpawnTool_Execute_EmptyTask(t *testing.T) {
 
 func TestSpawnTool_Execute_ValidTask(t *testing.T) {
 	provider := &MockLLMProvider{}
-	manager := NewSubagentManager(provider, "test-model", "/tmp/test")
+	manager := NewSubagentManager(provider, "test-model", t.TempDir())
 	tool := NewSpawnTool(manager)
 	spawner := &mockSpawner{done: make(chan struct{})}
 	tool.SetSpawner(spawner)
@@ -117,7 +117,7 @@ func TestSpawnTool_Execute_NilManager(t *testing.T) {
 
 func TestSpawnTool_SpawnStatusSeesSpawnedTask(t *testing.T) {
 	provider := &MockLLMProvider{}
-	manager := NewSubagentManager(provider, "test-model", "/tmp/test")
+	manager := NewSubagentManager(provider, "test-model", t.TempDir())
 	spawnTool := NewSpawnTool(manager)
 	spawner := &mockSpawner{done: make(chan struct{})}
 	spawnTool.SetSpawner(spawner)
@@ -167,7 +167,7 @@ func TestSpawnTool_SpawnStatusSeesSpawnedTask(t *testing.T) {
 
 func TestSpawnTool_ExecuteAsync_MarksCallbackResultUserOnly(t *testing.T) {
 	provider := &MockLLMProvider{}
-	manager := NewSubagentManager(provider, "test-model", "/tmp/test")
+	manager := NewSubagentManager(provider, "test-model", t.TempDir())
 	tool := NewSpawnTool(manager)
 	spawner := &mockSpawner{}
 	tool.SetSpawner(spawner)
@@ -198,7 +198,7 @@ func TestSpawnTool_ExecuteAsync_MarksCallbackResultUserOnly(t *testing.T) {
 
 func TestSpawnTool_ExecuteAsync_RespectsExplicitDeliveryMode(t *testing.T) {
 	provider := &MockLLMProvider{}
-	manager := NewSubagentManager(provider, "test-model", "/tmp/test")
+	manager := NewSubagentManager(provider, "test-model", t.TempDir())
 	tool := NewSpawnTool(manager)
 	spawner := &mockSpawner{}
 	tool.SetSpawner(spawner)
@@ -230,7 +230,7 @@ func TestSpawnTool_ExecuteAsync_RespectsExplicitDeliveryMode(t *testing.T) {
 
 func TestSpawnTool_Execute_InvalidDeliveryMode(t *testing.T) {
 	provider := &MockLLMProvider{}
-	manager := NewSubagentManager(provider, "test-model", "/tmp/test")
+	manager := NewSubagentManager(provider, "test-model", t.TempDir())
 	tool := NewSpawnTool(manager)
 
 	tests := []map[string]any{

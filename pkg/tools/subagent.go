@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/providers"
+	taskregistry "github.com/sipeed/picoclaw/pkg/tasks"
 )
 
 // SubTurnSpawner is an interface for spawning sub-turns.
@@ -70,6 +71,7 @@ type SubagentManager struct {
 	hasTemperature bool
 	nextID         int
 	spawner        SpawnSubTurnFunc
+	taskRegistry   *taskregistry.Registry
 
 	// mediaResolver resolves media:// refs in tool-loop messages before
 	// each LLM call in the legacy RunToolLoop fallback path.
@@ -82,15 +84,22 @@ func NewSubagentManager(
 	provider providers.LLMProvider,
 	defaultModel, workspace string,
 ) *SubagentManager {
-	return &SubagentManager{
+	registry := taskregistry.NewRegistry(taskregistry.WorkspaceStorePath(workspace))
+	manager := &SubagentManager{
 		tasks:         make(map[string]*SubagentTask),
 		provider:      provider,
 		defaultModel:  defaultModel,
 		workspace:     workspace,
 		tools:         NewToolRegistry(),
 		maxIterations: 10,
-		nextID:        1,
+		nextID:        registry.MaxNumericSuffix("subagent-") + 1,
+		taskRegistry:  registry,
 	}
+	if manager.nextID <= 0 {
+		manager.nextID = 1
+	}
+	manager.restoreTasksFromRegistry()
+	return manager
 }
 
 func (sm *SubagentManager) SetSpawner(spawner SpawnSubTurnFunc) {
@@ -157,6 +166,7 @@ func (sm *SubagentManager) Spawn(
 		Created:       time.Now().UnixMilli(),
 	}
 	sm.tasks[taskID] = subagentTask
+	sm.recordTask(subagentTask, taskregistry.StatusRunning, taskregistry.DeliveryPending, "")
 
 	// Start task in background with context cancellation support
 	go sm.runTask(ctx, subagentTask, callback)
@@ -185,6 +195,7 @@ func (sm *SubagentManager) runTask(
 		task.Status = "canceled"
 		task.Result = "Task canceled before execution"
 		sm.mu.Unlock()
+		sm.recordTask(task, taskregistry.StatusCancelled, taskregistry.DeliveryNotApplicable, task.Result)
 		return
 	default:
 	}
@@ -279,6 +290,9 @@ After completing the task, provide a clear summary of what was done.`
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			task.Status = "canceled"
 			task.Result = "Task canceled during execution"
+			sm.recordTask(task, taskregistry.StatusCancelled, taskregistry.DeliveryPending, task.Result)
+		} else {
+			sm.recordTask(task, taskregistry.StatusFailed, taskregistry.DeliveryPending, task.Result)
 		}
 		result = &ToolResult{
 			ForLLM:  task.Result,
@@ -291,7 +305,128 @@ After completing the task, provide a clear summary of what was done.`
 	} else {
 		task.Status = "completed"
 		task.Result = result.ForLLM
+		sm.recordTaskResult(task, result)
 	}
+}
+
+func (sm *SubagentManager) restoreTasksFromRegistry() {
+	if sm == nil || sm.taskRegistry == nil {
+		return
+	}
+	for _, rec := range sm.taskRegistry.List() {
+		if rec.Runtime != taskregistry.RuntimeSubagent {
+			continue
+		}
+		sm.tasks[rec.TaskID] = subagentTaskFromRecord(rec)
+	}
+}
+
+func subagentTaskFromRecord(rec taskregistry.Record) *SubagentTask {
+	status := "running"
+	switch rec.Status {
+	case taskregistry.StatusSucceeded:
+		status = "completed"
+	case taskregistry.StatusFailed:
+		status = "failed"
+	case taskregistry.StatusCancelled, taskregistry.StatusTimedOut:
+		status = "canceled"
+	case taskregistry.StatusRunning, taskregistry.StatusQueued:
+		status = "running"
+	}
+	return &SubagentTask{
+		ID:            rec.TaskID,
+		Task:          rec.Task,
+		Label:         rec.Label,
+		AgentID:       rec.AgentID,
+		OriginChannel: rec.Channel,
+		OriginChatID:  rec.ChatID,
+		Status:        status,
+		Result:        rec.TerminalSummary,
+		Created:       rec.CreatedAt,
+	}
+}
+
+func (sm *SubagentManager) recordTask(
+	task *SubagentTask,
+	status taskregistry.Status,
+	delivery taskregistry.DeliveryStatus,
+	summary string,
+) {
+	if sm == nil || sm.taskRegistry == nil || task == nil {
+		return
+	}
+	now := time.Now().UnixMilli()
+	rec := taskregistry.Record{
+		TaskID:         task.ID,
+		Runtime:        taskregistry.RuntimeSubagent,
+		TaskKind:       "spawn",
+		Channel:        task.OriginChannel,
+		ChatID:         task.OriginChatID,
+		AgentID:        task.AgentID,
+		Label:          task.Label,
+		Task:           task.Task,
+		Status:         status,
+		DeliveryStatus: delivery,
+		NotifyPolicy:   taskregistry.NotifyDoneOnly,
+		CreatedAt:      task.Created,
+		StartedAt:      task.Created,
+		LastEventAt:    now,
+	}
+	if rec.CreatedAt == 0 {
+		rec.CreatedAt = now
+	}
+	if rec.StartedAt == 0 {
+		rec.StartedAt = rec.CreatedAt
+	}
+	if status == taskregistry.StatusSucceeded || status == taskregistry.StatusFailed || status == taskregistry.StatusCancelled || status == taskregistry.StatusTimedOut {
+		rec.EndedAt = now
+		rec.TerminalSummary = summary
+	}
+	if status == taskregistry.StatusFailed {
+		rec.Error = summary
+	}
+	_ = sm.taskRegistry.Upsert(rec)
+}
+
+func (sm *SubagentManager) recordTaskResult(task *SubagentTask, result *ToolResult) {
+	if sm == nil || sm.taskRegistry == nil || task == nil {
+		return
+	}
+	summary := ""
+	if result != nil {
+		summary = result.ContentForLLM()
+	}
+	delivery := taskregistry.DeliveryPending
+	if result == nil || (result.Silent && result.AsyncDelivery == AsyncDeliveryParentOnly) {
+		delivery = taskregistry.DeliveryNotApplicable
+	}
+	completion := completionPayloadForTaskRegistry(result)
+	sm.recordTask(task, taskregistry.StatusSucceeded, delivery, summary)
+	if completion != nil {
+		_ = sm.taskRegistry.Update(task.ID, func(rec *taskregistry.Record) {
+			rec.Completion = completion
+			rec.LastEventAt = time.Now().UnixMilli()
+		})
+	}
+}
+
+func completionPayloadForTaskRegistry(result *ToolResult) *taskregistry.CompletionPayload {
+	if result == nil || result.Completion == nil {
+		return nil
+	}
+	payload := &taskregistry.CompletionPayload{Text: result.Completion.Text}
+	for _, item := range result.Completion.Media {
+		payload.Media = append(payload.Media, taskregistry.CompletionMedia{
+			Ref:         item.Ref,
+			Type:        item.Type,
+			Filename:    item.Filename,
+			ContentType: item.ContentType,
+		})
+	}
+	if payload.Text == "" && len(payload.Media) == 0 {
+		return nil
+	}
+	return payload
 }
 
 func (sm *SubagentManager) GetTask(taskID string) (*SubagentTask, bool) {

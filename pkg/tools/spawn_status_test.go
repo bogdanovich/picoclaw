@@ -143,7 +143,7 @@ func TestSpawnStatusTool_ListAll(t *testing.T) {
 
 func TestSpawnStatusTool_GetByID(t *testing.T) {
 	provider := &MockLLMProvider{}
-	manager := NewSubagentManager(provider, "test-model", "/tmp/test")
+	manager := NewSubagentManager(provider, "test-model", t.TempDir())
 
 	manager.mu.Lock()
 	manager.tasks["subagent-42"] = &SubagentTask{
@@ -178,7 +178,7 @@ func TestSpawnStatusTool_GetByID(t *testing.T) {
 
 func TestSpawnStatusTool_GetByID_NotFound(t *testing.T) {
 	provider := &MockLLMProvider{}
-	manager := NewSubagentManager(provider, "test-model", "/tmp/test")
+	manager := NewSubagentManager(provider, "test-model", t.TempDir())
 	tool := NewSpawnStatusTool(manager)
 
 	result := tool.Execute(context.Background(), map[string]any{"task_id": "nonexistent-999"})
@@ -192,7 +192,7 @@ func TestSpawnStatusTool_GetByID_NotFound(t *testing.T) {
 
 func TestSpawnStatusTool_TaskID_NonString(t *testing.T) {
 	provider := &MockLLMProvider{}
-	manager := NewSubagentManager(provider, "test-model", "/tmp/test")
+	manager := NewSubagentManager(provider, "test-model", t.TempDir())
 	tool := NewSpawnStatusTool(manager)
 
 	for _, badVal := range []any{42, 3.14, true, map[string]any{"x": 1}, []string{"a"}} {
@@ -208,7 +208,7 @@ func TestSpawnStatusTool_TaskID_NonString(t *testing.T) {
 
 func TestSpawnStatusTool_ResultTruncation(t *testing.T) {
 	provider := &MockLLMProvider{}
-	manager := NewSubagentManager(provider, "test-model", "/tmp/test")
+	manager := NewSubagentManager(provider, "test-model", t.TempDir())
 
 	longResult := strings.Repeat("X", 500)
 	manager.mu.Lock()
@@ -237,7 +237,7 @@ func TestSpawnStatusTool_ResultTruncation(t *testing.T) {
 
 func TestSpawnStatusTool_ResultTruncation_Unicode(t *testing.T) {
 	provider := &MockLLMProvider{}
-	manager := NewSubagentManager(provider, "test-model", "/tmp/test")
+	manager := NewSubagentManager(provider, "test-model", t.TempDir())
 
 	// Each CJK rune is 3 bytes; 400 runes = 1200 bytes — well over the 300-rune limit.
 	cjkChar := string(rune(0x5b57))
@@ -268,7 +268,7 @@ func TestSpawnStatusTool_ResultTruncation_Unicode(t *testing.T) {
 
 func TestSpawnStatusTool_StatusCounts(t *testing.T) {
 	provider := &MockLLMProvider{}
-	manager := NewSubagentManager(provider, "test-model", "/tmp/test")
+	manager := NewSubagentManager(provider, "test-model", t.TempDir())
 
 	manager.mu.Lock()
 	for i, status := range []string{"running", "running", "completed", "failed", "canceled"} {
@@ -293,7 +293,7 @@ func TestSpawnStatusTool_StatusCounts(t *testing.T) {
 
 func TestSpawnStatusTool_SortByCreatedTimestamp(t *testing.T) {
 	provider := &MockLLMProvider{}
-	manager := NewSubagentManager(provider, "test-model", "/tmp/test")
+	manager := NewSubagentManager(provider, "test-model", t.TempDir())
 
 	now := time.Now().UnixMilli()
 	manager.mu.Lock()
@@ -328,7 +328,7 @@ func TestSpawnStatusTool_SortByCreatedTimestamp(t *testing.T) {
 
 func TestSpawnStatusTool_ChannelFiltering_ListAll(t *testing.T) {
 	provider := &MockLLMProvider{}
-	manager := NewSubagentManager(provider, "test-model", "/tmp/test")
+	manager := NewSubagentManager(provider, "test-model", t.TempDir())
 
 	manager.mu.Lock()
 	manager.tasks["subagent-1"] = &SubagentTask{
@@ -360,7 +360,7 @@ func TestSpawnStatusTool_ChannelFiltering_ListAll(t *testing.T) {
 
 func TestSpawnStatusTool_ChannelFiltering_GetByID(t *testing.T) {
 	provider := &MockLLMProvider{}
-	manager := NewSubagentManager(provider, "test-model", "/tmp/test")
+	manager := NewSubagentManager(provider, "test-model", t.TempDir())
 
 	manager.mu.Lock()
 	manager.tasks["subagent-99"] = &SubagentTask{
@@ -382,7 +382,7 @@ func TestSpawnStatusTool_ChannelFiltering_GetByID(t *testing.T) {
 
 func TestSpawnStatusTool_ChannelFiltering_NoContext(t *testing.T) {
 	provider := &MockLLMProvider{}
-	manager := NewSubagentManager(provider, "test-model", "/tmp/test")
+	manager := NewSubagentManager(provider, "test-model", t.TempDir())
 
 	manager.mu.Lock()
 	manager.tasks["subagent-1"] = &SubagentTask{
@@ -405,5 +405,34 @@ func TestSpawnStatusTool_ChannelFiltering_NoContext(t *testing.T) {
 	}
 	if !strings.Contains(result.ForLLM, "subagent-1") {
 		t.Errorf("Expected task visible from no-context caller, got:\n%s", result.ForLLM)
+	}
+}
+
+func TestSpawnStatusTool_RestoresTasksFromPersistentRegistry(t *testing.T) {
+	provider := &MockLLMProvider{}
+	workspace := t.TempDir()
+	manager := NewSubagentManager(provider, "test-model", workspace)
+
+	manager.mu.Lock()
+	manager.tasks["subagent-1"] = &SubagentTask{
+		ID: "subagent-1", Task: "persist me", Status: "completed",
+		Result: "saved result", Created: time.Now().UnixMilli(),
+	}
+	task := *manager.tasks["subagent-1"]
+	manager.mu.Unlock()
+	manager.recordTask(&task, "succeeded", "delivered", "saved result")
+
+	reloaded := NewSubagentManager(provider, "test-model", workspace)
+	tool := NewSpawnStatusTool(reloaded)
+	result := tool.Execute(context.Background(), map[string]any{"task_id": "subagent-1"})
+
+	if result.IsError {
+		t.Fatalf("Expected restored task, got error: %s", result.ForLLM)
+	}
+	if !strings.Contains(result.ForLLM, "persist me") {
+		t.Fatalf("Expected restored task content, got:\n%s", result.ForLLM)
+	}
+	if !strings.Contains(result.ForLLM, "saved result") {
+		t.Fatalf("Expected restored result, got:\n%s", result.ForLLM)
 	}
 }

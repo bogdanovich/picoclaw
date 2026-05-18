@@ -7,7 +7,7 @@ import (
 )
 
 func TestSubagentManager_SetMediaResolver_StoresResolver(t *testing.T) {
-	manager := NewSubagentManager(nil, "gpt-test", "/tmp")
+	manager := NewSubagentManager(nil, "gpt-test", t.TempDir())
 
 	called := false
 	manager.SetMediaResolver(func(msgs []providers.Message) []providers.Message {
