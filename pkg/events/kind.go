@@ -31,6 +31,8 @@ const (
 	KindAgentSteeringInjected Kind = "agent.steering.injected"
 	// KindAgentFollowUpQueued is emitted when async follow-up input is queued.
 	KindAgentFollowUpQueued Kind = "agent.follow_up.queued"
+	// KindAgentAsyncCompletion is emitted when an async tool reports completion.
+	KindAgentAsyncCompletion Kind = "agent.async.completion"
 	// KindAgentInterruptReceived is emitted when a turn interrupt is accepted.
 	KindAgentInterruptReceived Kind = "agent.interrupt.received"
 
@@ -116,6 +118,7 @@ var knownKinds = []Kind{
 	KindAgentToolExecSkipped,
 	KindAgentSteeringInjected,
 	KindAgentFollowUpQueued,
+	KindAgentAsyncCompletion,
 	KindAgentInterruptReceived,
 	KindAgentSubTurnSpawn,
 	KindAgentSubTurnEnd,

@@ -201,6 +201,31 @@ func shouldQueueAsyncToolResultForParent(result *tools.ToolResult) bool {
 	return true
 }
 
+func asyncResultContentLen(result *tools.ToolResult) int {
+	if result == nil {
+		return 0
+	}
+	return len(result.ContentForLLM())
+}
+
+func asyncResultForUserLen(result *tools.ToolResult) int {
+	if result == nil {
+		return 0
+	}
+	return len(result.ForUser)
+}
+
+func asyncResultMediaCount(result *tools.ToolResult) int {
+	if result == nil {
+		return 0
+	}
+	count := len(result.Media)
+	if result.Completion != nil {
+		count += len(result.Completion.Media)
+	}
+	return count
+}
+
 func recordCompletionMedia(exec *turnExecution, store media.MediaStore, refs []string) {
 	if exec == nil || len(refs) == 0 {
 		return
@@ -590,6 +615,22 @@ toolLoop:
 		asyncToolName := toolName
 		mcpServerName := mcpServerNameForTool(ts, toolName)
 		asyncCallback := func(_ context.Context, result *tools.ToolResult) {
+			completionID := asyncCompletionID(ts.turnID, toolCallID, asyncToolName)
+			al.emitEvent(
+				runtimeevents.KindAgentAsyncCompletion,
+				ts.scope.meta(iteration, "runTurn", "turn.async.completion"),
+				AsyncCompletionPayload{
+					SourceTool:   asyncToolName,
+					CompletionID: completionID,
+					DeliveryMode: string(effectiveAsyncToolResultDelivery(result)),
+					ContentLen:   asyncResultContentLen(result),
+					ForUserLen:   asyncResultForUserLen(result),
+					MediaCount:   asyncResultMediaCount(result),
+					IsError:      result != nil && result.IsError,
+					WillUser:     shouldPublishAsyncToolResultToUser(result),
+					WillParent:   shouldQueueAsyncToolResultForParent(result),
+				},
+			)
 			if result != nil && result.IsError {
 				content := strings.TrimSpace(result.ForUser)
 				if content == "" {
@@ -641,7 +682,6 @@ toolLoop:
 			)
 			pubCtx, pubCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer pubCancel()
-			completionID := asyncCompletionID(ts.turnID, toolCallID, asyncToolName)
 			_ = al.bus.PublishInbound(pubCtx, bus.InboundMessage{
 				Context: bus.InboundContext{
 					Channel:  "system",

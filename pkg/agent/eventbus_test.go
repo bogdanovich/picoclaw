@@ -826,6 +826,107 @@ func TestAgentLoop_AsyncToolUserOnly_DoesNotEmitFollowUpQueued(t *testing.T) {
 	}
 }
 
+func TestAgentLoop_EmitsAsyncCompletionEvent(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace:         tmpDir,
+				ModelName:         "test-model",
+				MaxTokens:         4096,
+				MaxToolIterations: 10,
+			},
+		},
+	}
+
+	provider := &toolCallProvider{
+		toolCalls: []providers.ToolCall{
+			{
+				ID:   "call_async_1",
+				Type: "function",
+				Name: "async_completion_event",
+				Function: &providers.FunctionCall{
+					Name:      "async_completion_event",
+					Arguments: "{}",
+				},
+				Arguments: map[string]any{},
+			},
+		},
+		finalResp: "async launched",
+	}
+
+	msgBus := bus.NewMessageBus()
+	al := NewAgentLoop(cfg, msgBus, provider)
+	doneCh := make(chan struct{})
+	al.RegisterTool(&asyncFollowUpTool{
+		name:          "async_completion_event",
+		followUpText:  "background result",
+		completionSig: doneCh,
+		deliveryMode:  tools.AsyncDeliveryUserOnly,
+	})
+	defaultAgent := al.registry.GetDefaultAgent()
+	if defaultAgent == nil {
+		t.Fatal("expected default agent")
+	}
+
+	runtimeCh, closeRuntimeEvents := subscribeRuntimeEventsForTest(
+		t,
+		al,
+		8,
+		runtimeevents.KindAgentAsyncCompletion,
+	)
+	defer closeRuntimeEvents()
+
+	resp, err := al.runAgentLoop(context.Background(), defaultAgent, processOptions{
+		SessionKey:      "session-1",
+		Channel:         "cli",
+		ChatID:          "direct",
+		UserMessage:     "run async tool",
+		DefaultResponse: defaultResponse,
+		EnableSummary:   false,
+		SendResponse:    false,
+	})
+	if err != nil {
+		t.Fatalf("runAgentLoop failed: %v", err)
+	}
+	if resp != "async launched" {
+		t.Fatalf("expected final response 'async launched', got %q", resp)
+	}
+
+	select {
+	case <-doneCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for async tool completion")
+	}
+
+	evt := waitForRuntimeEvent(t, runtimeCh, 2*time.Second, func(evt runtimeevents.Event) bool {
+		return evt.Kind == runtimeevents.KindAgentAsyncCompletion
+	})
+	payload, ok := evt.Payload.(AsyncCompletionPayload)
+	if !ok {
+		t.Fatalf("expected AsyncCompletionPayload, got %T", evt.Payload)
+	}
+	if payload.SourceTool != "async_completion_event" {
+		t.Fatalf("SourceTool = %q, want async_completion_event", payload.SourceTool)
+	}
+	if payload.DeliveryMode != string(tools.AsyncDeliveryUserOnly) {
+		t.Fatalf("DeliveryMode = %q, want %q", payload.DeliveryMode, tools.AsyncDeliveryUserOnly)
+	}
+	if payload.ContentLen != len("background result") {
+		t.Fatalf("ContentLen = %d, want %d", payload.ContentLen, len("background result"))
+	}
+	if payload.WillUser {
+		t.Fatal("expected user delivery to be false because the result has no ForUser text")
+	}
+	if payload.WillParent {
+		t.Fatal("expected parent delivery to be false")
+	}
+	if payload.CompletionID == "" {
+		t.Fatal("expected completion id")
+	}
+}
+
 func TestAsyncToolResultDeliveryRouting(t *testing.T) {
 	tests := []struct {
 		name              string
